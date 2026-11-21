@@ -27,8 +27,13 @@ def process_asset(page):
     if not market:
         raise Exception("Market is empty!")
 
+    type_data = props.get("Type", {}).get("select")
+    asset_type = type_data["name"] if type_data else None
+    if not asset_type:
+        raise Exception("Type is empty!")
+
     target_ticker = format_ticker(ticker, market)
-    price = fetch_price(target_ticker, market)
+    price = fetch_price(target_ticker, market, asset_type)
     return {"Price": {"number": float(price)}}
 
 

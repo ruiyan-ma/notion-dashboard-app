@@ -76,19 +76,23 @@ def _parse_price(value):
     return price
 
 
-def _fetch_nasdaq_price(ticker):
+def _fetch_nasdaq_price(ticker, asset_class):
     """Fetches a US stock or ETF quote from Nasdaq."""
     url = NASDAQ_INFO_URL.format(ticker=ticker)
-    for asset_class in ("stocks", "etf"):
-        payload = _request_json(
-            f"{url}?assetclass={asset_class}",
-            f"Nasdaq {ticker}",
-        )
-        data = payload.get("data") or {}
-        value = (data.get("primaryData") or {}).get("lastSalePrice")
-        if value and value != "N/A":
-            return _parse_price(value)
-    raise RuntimeError(f"Nasdaq returned no price for {ticker}")
+    payload = _request_json(
+        f"{url}?assetclass={asset_class}",
+        f"Nasdaq {ticker}",
+    )
+    data = payload.get("data") or {}
+    value = (data.get("primaryData") or {}).get("lastSalePrice")
+    if value and value != "N/A":
+        return _parse_price(value)
+
+    status = payload.get("status") or {}
+    raise RuntimeError(
+        f"Nasdaq returned no price for {ticker} (assetclass={asset_class}, "
+        f"bCodeMessage={status.get('bCodeMessage')}, lastSalePrice={value})"
+    )
 
 
 def _fetch_coinbase_price(ticker):
@@ -113,10 +117,11 @@ def _fetch_yfinance_price(ticker):
     raise RuntimeError(f"Yahoo Finance returned no price for {ticker}")
 
 
-def fetch_price(ticker, market):
+def fetch_price(ticker, market, asset_type):
     """Uses Nasdaq for US, Coinbase for crypto, and yfinance otherwise."""
     if market == "US":
-        return _fetch_nasdaq_price(ticker)
+        asset_class = "etf" if asset_type == "ETF" else "stocks"
+        return _fetch_nasdaq_price(ticker, asset_class)
     elif market == "Crypto":
         return _fetch_coinbase_price(ticker)
     else:
