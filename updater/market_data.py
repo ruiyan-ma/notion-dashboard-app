@@ -13,10 +13,9 @@ import yfinance as yf
 from shared.utils import get_title, query_all_pages
 from updater.notion import notion_client
 
-# yfinance handles every market except US stocks and cryptocurrencies.
+# yfinance handles every market except cryptocurrencies.
 yf.config.network.retries = 2
 
-NASDAQ_INFO_URL = "https://api.nasdaq.com/api/quote/{ticker}/info"
 COINBASE_TICKER_URL = "https://api.exchange.coinbase.com/products/{pair}/ticker"
 USD_RATES_URL = "https://open.er-api.com/v6/latest/USD"
 GOLD_PRICE_URL = "https://api.gold-api.com/price/XAU"
@@ -76,25 +75,6 @@ def _parse_price(value):
     return price
 
 
-def _fetch_nasdaq_price(ticker, asset_class):
-    """Fetches a US stock or ETF quote from Nasdaq."""
-    url = NASDAQ_INFO_URL.format(ticker=ticker)
-    payload = _request_json(
-        f"{url}?assetclass={asset_class}",
-        f"Nasdaq {ticker}",
-    )
-    data = payload.get("data") or {}
-    value = (data.get("primaryData") or {}).get("lastSalePrice")
-    if value and value != "N/A":
-        return _parse_price(value)
-
-    status = payload.get("status") or {}
-    raise RuntimeError(
-        f"Nasdaq returned no price for {ticker} (assetclass={asset_class}, "
-        f"bCodeMessage={status.get('bCodeMessage')}, lastSalePrice={value})"
-    )
-
-
 def _fetch_coinbase_price(ticker):
     """Fetches the cryptocurrency price from Coinbase."""
     pair = ticker if "-" in ticker else f"{ticker}-USD"
@@ -108,22 +88,26 @@ def _fetch_coinbase_price(ticker):
     raise RuntimeError(f"Coinbase returned no price for {pair}")
 
 
-def _fetch_yfinance_price(ticker):
+def _fetch_yfinance_price(ticker, extended_hours=False):
     """Fetches a quote from Yahoo Finance."""
     data = yf.Ticker(ticker, session=_get_market_session())
-    hist = data.history(period="5d", interval="1d", timeout=10)
+    if extended_hours:
+        hist = data.history(period="1d", interval="5m", prepost=True, timeout=10)
+    else:
+        hist = data.history(period="1d", interval="5m", timeout=10)
     if not hist.empty:
-        return _parse_price(hist["Close"].iloc[-1])
+        close_prices = hist["Close"].dropna()
+        if not close_prices.empty:
+            return _parse_price(close_prices.iloc[-1])
     raise RuntimeError(f"Yahoo Finance returned no price for {ticker}")
 
 
-def fetch_price(ticker, market, asset_type):
-    """Uses Nasdaq for US, Coinbase for crypto, and yfinance otherwise."""
-    if market == "US":
-        asset_class = "etf" if asset_type == "ETF" else "stocks"
-        return _fetch_nasdaq_price(ticker, asset_class)
-    elif market == "Crypto":
+def fetch_price(ticker, market):
+    """Uses Coinbase for crypto and yfinance otherwise."""
+    if market == "Crypto":
         return _fetch_coinbase_price(ticker)
+    elif market == "US":
+        return _fetch_yfinance_price(ticker, True)
     else:
         return _fetch_yfinance_price(ticker)
 
